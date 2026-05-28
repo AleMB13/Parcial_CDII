@@ -927,10 +927,7 @@ if uploaded_files:
 
         with cols[idx % 3]:
 
-            st.image(
-                img,
-                use_container_width=True
-            )
+            st.image(img, width="stretch")
 
 # =========================================================
 # PROCESAMIENTO
