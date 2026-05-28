@@ -940,13 +940,13 @@ if uploaded_files:
 # =========================================================
 
 if uploaded_files:
+
     if st.button("EJECUTAR OCR + NLP"):
 
-    with st.spinner("Cargando modelo OCR..."):
-        reader = cargar_ocr()
+        with st.spinner("Cargando modelo OCR..."):
+            reader = cargar_ocr()
 
-    resultados_finales = []
-
+        resultados_finales = []
 
         progress = st.progress(0)
 
