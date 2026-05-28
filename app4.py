@@ -398,8 +398,6 @@ nlp = cargar_spacy()
 def cargar_ocr():
     return easyocr.Reader(['es'], gpu=False)
 
-with st.spinner("Cargando OCR..."):
-    reader = cargar_ocr()
 
 
 # =========================================================
