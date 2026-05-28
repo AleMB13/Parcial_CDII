@@ -332,13 +332,22 @@ mostrar_preprocesamiento = st.sidebar.checkbox(
 # DESCARGAS NLTK
 # =========================================================
 
+import nltk
+import streamlit as st
+
 @st.cache_resource
-def descargar_nltk():
+def asegurar_nltk():
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        nltk.download('punkt')
 
-    nltk.download('punkt')
-    nltk.download('stopwords')
+    try:
+        nltk.data.find('corpora/stopwords')
+    except LookupError:
+        nltk.download('stopwords')
 
-descargar_nltk()
+asegurar_nltk()
 
 # =========================================================
 # SPACY
