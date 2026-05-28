@@ -28,6 +28,17 @@ st.set_page_config(
 plt.style.use('ggplot')
 
 # =========================================================
+# FIX CSS (EVITA TEXTO INVISIBLE)
+# =========================================================
+st.markdown("""
+<style>
+* {
+    color: #111827 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =========================================================
 # SESSION STATE
 # =========================================================
 if "df_final" not in st.session_state:
@@ -107,27 +118,26 @@ def extraer_fechas(texto):
 
 def extraer_nombre(texto):
 
+    texto = re.sub(r'\s+', ' ', texto.upper())
+
     patrones = [
-        r'(?:PACIENTE|NOMBRE|APELLIDOS Y NOMBRES|APELLIDOS Y NOMBRE)\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ\s]{8,})',
-        r'(?:SR|SRA|SEÑOR|SEÑORA)\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ\s]{8,})'
+        r'NOMBRE\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ ]{8,})',
+        r'PACIENTE\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ ]{8,})',
+        r'SR(?:A)?\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ ]{8,})'
     ]
 
-    texto_up = texto.upper()
-
-    for patron in patrones:
-        m = re.search(patron, texto_up)
+    for p in patrones:
+        m = re.search(p, texto)
         if m:
-            nombre = m.group(1)
-            nombre = re.sub(r'\s+', ' ', nombre).strip()
+            return m.group(1).strip()
 
-            cortes = ["DNI", "CMP", "EDAD", "SEXO", "SERVICIO"]
-            for c in cortes:
-                if c in nombre:
-                    nombre = nombre.split(c)[0]
+    palabras = texto.split()
+    candidatos = [w for w in palabras if w.isalpha() and len(w) > 4]
 
-            return nombre[:80]
+    if len(candidatos) > 3:
+        return " ".join(candidatos[:4])
 
-    return None
+    return "NO IDENTIFICADO"
 
 # =========================================================
 # PREPROCESAMIENTO IMAGEN
@@ -152,7 +162,7 @@ def preprocesar_imagen(img):
     }
 
 # =========================================================
-# UI
+# UI HEADER
 # =========================================================
 st.title("🏥 Certificado Médico Perú - OCR + NLP")
 
@@ -195,12 +205,12 @@ if uploaded_files:
 
             resultados.append({
                 "archivo": file.name,
-                "nombre": extraer_nombre(texto),
+                "nombre": extraer_nombre(texto) or "NO IDENTIFICADO",
                 "sexo": "Masculino",
-                "dni": extraer_dni(texto),
-                "edad": extraer_edad(texto),
-                "cmp": extraer_cmp(texto),
-                "fechas": extraer_fechas(texto),
+                "dni": extraer_dni(texto) or "NO ENCONTRADO",
+                "edad": extraer_edad(texto) or "NO ENCONTRADO",
+                "cmp": extraer_cmp(texto) or "NO ENCONTRADO",
+                "fechas": extraer_fechas(texto) or "SIN FECHAS",
                 "categoria": "Traumatología",
                 "sentimiento": "Neutral",
                 "texto_ocr": texto,
@@ -254,15 +264,18 @@ if st.session_state.df_final is not None:
 
     st.markdown(f"""
     <div style="
-        background:white;
+        background:#ffffff;
         padding:25px;
         border-radius:18px;
-        box-shadow:0 4px 12px rgba(0,0,0,0.08);
+        box-shadow:0 4px 12px rgba(0,0,0,0.15);
         line-height:1.8;
         font-size:16px;
+        color:#111827;
     ">
 
-    <h3 style="color:#2563eb;">{fila['archivo']}</h3>
+    <h3 style="color:#2563eb;">
+    {fila['archivo']}
+    </h3>
 
     <b>Nombre:</b> {fila['nombre']}<br>
     <b>Sexo:</b> {fila['sexo']}<br>
@@ -278,7 +291,7 @@ if st.session_state.df_final is not None:
     """, unsafe_allow_html=True)
 
     # =====================================================
-    # METRICAS
+    # MÉTRICAS
     # =====================================================
     st.subheader("📈 Métricas")
 
