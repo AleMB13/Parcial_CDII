@@ -5,8 +5,8 @@ matplotlib
 Pillow
 opencv-python-headless
 easyocr
-torch
-torchvision
+torch==2.2.2
+torchvision==0.17.2
 nltk
 wordcloud
 textblob
