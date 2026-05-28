@@ -72,12 +72,16 @@ reader = cargar_ocr()
 # NLP CLEANING
 # =========================================================
 def pipeline_limpieza(texto):
+
     texto = texto.lower()
     texto = re.sub(r'[^a-záéíóúñ0-9\s]', ' ', texto)
     texto = re.sub(r'\s+', ' ', texto).strip()
 
     tokens = tokenizar(texto)
-    tokens_limpios = [t for t in tokens if t not in STOPWORDS_ES and len(t) > 2]
+    tokens_limpios = [
+        t for t in tokens
+        if t not in STOPWORDS_ES and len(t) > 2
+    ]
 
     return {
         "texto_preprocesado": " ".join(tokens_limpios),
@@ -94,17 +98,55 @@ def extraer_dni(texto):
     return m.group() if m else None
 
 def extraer_edad(texto):
-    m = re.search(r'(\d{1,3})\s*años', texto)
+    m = re.search(r'(\d{1,3})\s*años', texto.lower())
     return m.group(1) if m else None
 
 def extraer_cmp(texto):
-    m = re.search(r'cmp\s*[:\-]?\s*(\d+)', texto, re.IGNORECASE)
+    m = re.search(r'cmp\s*[:\-]?\s*(\d+)', texto.lower())
     return m.group(1) if m else None
 
+# =========================================================
+# 🔥 MEJORADO: FECHAS + DESCANSO MÉDICO
+# =========================================================
 def extraer_fechas(texto):
-    fechas = re.findall(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b', texto)
-    return " | ".join(fechas) if fechas else None
 
+    t = texto.lower()
+
+    fechas = re.findall(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b', t)
+
+    rangos = re.findall(
+        r'del\s+\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\s+al\s+\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',
+        t
+    )
+
+    dias = re.findall(
+        r'(\d{1,3})\s*d[ií]as?\s*(?:de\s*)?(descanso|reposo|incapacidad)?',
+        t
+    )
+
+    frases = []
+    if "descanso medico" in t:
+        frases.append("descanso médico")
+    if "reposo medico" in t:
+        frases.append("reposo médico")
+    if "incapacidad temporal" in t:
+        frases.append("incapacidad temporal")
+
+    resultado = []
+
+    resultado.extend(rangos)
+    resultado.extend(fechas)
+
+    if dias:
+        resultado.extend([f"{d[0]} días de descanso" for d in dias])
+
+    resultado.extend(frases)
+
+    return " | ".join(set(resultado)) if resultado else None
+
+# =========================================================
+# NOMBRE
+# =========================================================
 def extraer_nombre(texto):
 
     texto = re.sub(r'\s+', ' ', texto.upper())
@@ -129,31 +171,28 @@ def extraer_nombre(texto):
     return "NO IDENTIFICADO"
 
 # =========================================================
-# PREPROCESS IMAGE
+# IMAGEN PREPROCESS
 # =========================================================
 def preprocesar_imagen(img):
+
     img = np.array(img)
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    brillo = np.mean(gray)
-    contraste = np.std(gray)
-    blur = cv2.Laplacian(gray, cv2.CV_64F).var()
-
     return {
         "gray": gray,
         "metricas": {
-            "brillo": round(brillo, 2),
-            "contraste": round(contraste, 2),
-            "blur": round(blur, 2),
-            "estado_blur": "Nítido" if blur > 100 else "Borroso"
+            "brillo": float(np.mean(gray)),
+            "contraste": float(np.std(gray)),
+            "blur": float(cv2.Laplacian(gray, cv2.CV_64F).var()),
+            "estado_blur": "Nítido" if cv2.Laplacian(gray, cv2.CV_64F).var() > 100 else "Borroso"
         }
     }
 
 # =========================================================
-# UI HEADER
+# UI
 # =========================================================
-st.title("🏥 Certificado Médico Perú - OCR + NLP")
+st.title("🏥 Certificados Médicos Perú - OCR + NLP")
 
 uploaded_files = st.file_uploader(
     "Subir certificados médicos",
@@ -173,7 +212,7 @@ if uploaded_files:
             st.image(Image.open(file), use_container_width=True)
 
 # =========================================================
-# PROCESSING
+# PROCESAMIENTO
 # =========================================================
 if uploaded_files:
 
@@ -194,12 +233,12 @@ if uploaded_files:
 
             resultados.append({
                 "archivo": file.name,
-                "nombre": extraer_nombre(texto) or "NO IDENTIFICADO",
+                "nombre": extraer_nombre(texto),
                 "sexo": "Masculino",
-                "dni": extraer_dni(texto) or "NO ENCONTRADO",
-                "edad": extraer_edad(texto) or "NO ENCONTRADO",
-                "cmp": extraer_cmp(texto) or "NO ENCONTRADO",
-                "fechas": extraer_fechas(texto) or "SIN FECHAS",
+                "dni": extraer_dni(texto),
+                "edad": extraer_edad(texto),
+                "cmp": extraer_cmp(texto),
+                "fechas": extraer_fechas(texto),
                 "categoria": "Traumatología",
                 "sentimiento": "Neutral",
                 "texto_ocr": texto,
@@ -228,20 +267,13 @@ if uploaded_files:
 # =========================================================
 if st.session_state.df_final is not None:
 
-    df_final = st.session_state.df_final
-    frecuencias = st.session_state.frecuencias
-    palabras = st.session_state.palabras
+    df = st.session_state.df_final
 
     st.divider()
     st.subheader("📊 Resultados")
 
-    # =====================================================
-    # FICHA MÉDICA ORDENADA
-    # =====================================================
-    st.markdown("## Resultado Completo")
-
-    doc = st.selectbox("Seleccionar documento", df_final["archivo"].tolist())
-    fila = df_final[df_final["archivo"] == doc].iloc[0]
+    doc = st.selectbox("Seleccionar documento", df["archivo"].tolist())
+    fila = df[df["archivo"] == doc].iloc[0]
 
     c1, c2, c3, c4 = st.columns(4)
     c1.info(f"Sexo:\n{fila['sexo']}")
@@ -253,7 +285,7 @@ if st.session_state.df_final is not None:
 
     st.markdown(f"""
     <div style="
-        background:#ffffff;
+        background:white;
         padding:25px;
         border-radius:18px;
         box-shadow:0 4px 12px rgba(0,0,0,0.15);
@@ -269,7 +301,7 @@ if st.session_state.df_final is not None:
     <b>DNI:</b> {fila['dni']}<br>
     <b>Edad:</b> {fila['edad']}<br>
     <b>CMP:</b> {fila['cmp']}<br>
-    <b>Fechas:</b> {fila['fechas']}<br>
+    <b>Fechas / Descanso:</b> {fila['fechas']}<br>
     <b>Servicio:</b> Medicina General<br>
     <b>Categoría:</b> {fila['categoria']}<br>
     <b>Sentimiento:</b> Neutral<br>
@@ -277,47 +309,28 @@ if st.session_state.df_final is not None:
     </div>
     """, unsafe_allow_html=True)
 
-    # =====================================================
-    # MÉTRICAS
-    # =====================================================
     st.subheader("📈 Métricas")
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Documentos", len(df_final))
-    c2.metric("Tokens OCR", int(df_final["tokens_originales"].mean()))
-    c3.metric("Tokens Limpios", int(df_final["tokens_limpios"].mean()))
+    st.metric("Documentos", len(df))
 
     # =====================================================
-    # TABS
+    # WORDCLOUD
     # =====================================================
-    tab1, tab2, tab3 = st.tabs(["Frecuencia", "WordCloud", "Clasificación"])
-
-    with tab1:
-        top = frecuencias.most_common(20)
-        if top:
-            p, v = zip(*top)
-            fig, ax = plt.subplots()
-            ax.barh(p, v)
-            st.pyplot(fig)
-
-    with tab2:
+    palabras = st.session_state.palabras
+    if palabras:
         wc = WordCloud(width=800, height=400).generate(" ".join(palabras))
         fig, ax = plt.subplots()
         ax.imshow(wc)
         ax.axis("off")
         st.pyplot(fig)
 
-    with tab3:
-        st.bar_chart(df_final["categoria"].value_counts())
-
     # =====================================================
     # EXPORT
     # =====================================================
-    csv = df_final.to_csv(index=False).encode("utf-8")
+    csv = df.to_csv(index=False).encode("utf-8")
 
     st.download_button(
         "Descargar CSV",
         csv,
-        "certificados_medicos.csv",
+        "certificados.csv",
         "text/csv"
     )
