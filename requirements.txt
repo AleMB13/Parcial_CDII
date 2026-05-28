@@ -10,3 +10,4 @@ wordcloud
 textblob
 spacy
 seaborn
+rapidfuzz
