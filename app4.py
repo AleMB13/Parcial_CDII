@@ -396,18 +396,18 @@ nlp = cargar_spacy()
 
 @st.cache_resource
 def cargar_ocr():
+return easyocr.Reader(['es'], gpu=False)
 
-    return easyocr.Reader(
-        ['es'],
-        gpu=False
-    )
+with st.spinner("Cargando OCR..."):
+reader = cargar_ocr()
+
 
 # =========================================================
 # STOPWORDS
 # =========================================================
 
-nltk.download('punkt')
-nltk.download('stopwords')
+#nltk.download('punkt')
+#nltk.download('stopwords')
 STOPWORDS_ES = set(stopwords.words('spanish'))
 
 STOPWORDS_DOMINIO = {
