@@ -1,0 +1,13 @@
+streamlit
+pandas
+numpy
+matplotlib
+Pillow
+opencv-python
+easyocr
+nltk
+wordcloud
+textblob
+spacy
+seaborn
+rapidfuzz
