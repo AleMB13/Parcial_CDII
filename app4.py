@@ -1,5 +1,5 @@
 # =========================================================
-# IMPORTS LIMPIOS
+# IMPORTS
 # =========================================================
 import streamlit as st
 import pandas as pd
@@ -12,14 +12,10 @@ import gc
 from collections import Counter
 
 import nltk
-from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 
 import easyocr
-from io import BytesIO
 from wordcloud import WordCloud
-from textblob import TextBlob
-from rapidfuzz import fuzz
 
 # =========================================================
 # CONFIG STREAMLIT
@@ -31,28 +27,26 @@ st.set_page_config(
 )
 
 # =========================================================
-# NLTK (CORRECTO Y CACHEADO)
+# NLTK (FIX DEFINITIVO PARA STREAMLIT CLOUD)
 # =========================================================
-import nltk
-import streamlit as st
-
 @st.cache_resource
 def asegurar_nltk():
-    resources = [
-        ("tokenizers/punkt", "punkt"),
-        ("corpora/stopwords", "stopwords")
-    ]
+    try:
+        nltk.data.find("corpora/stopwords")
+    except LookupError:
+        nltk.download("stopwords", quiet=True)
 
-    for path, pkg in resources:
-        try:
-            nltk.data.find(path)
-        except LookupError:
-            nltk.download(pkg, quiet=True)
+    try:
+        nltk.data.find("tokenizers/punkt")
+    except LookupError:
+        nltk.download("punkt", quiet=True)
 
 asegurar_nltk()
 
+STOPWORDS_ES = set(stopwords.words("spanish"))
+
 # =========================================================
-# OCR (ESTO ES LO MÁS IMPORTANTE)
+# OCR (CACHE REAL - EVITA DESCARGA REPETIDA)
 # =========================================================
 @st.cache_resource(show_spinner=True)
 def cargar_ocr():
@@ -76,28 +70,28 @@ def preprocesar_imagen(pil_image):
     }
 
 # =========================================================
-# NLP SIMPLE
+# NLP SIMPLE (SIN NLTK TOKENIZER - EVITA ERRORES)
 # =========================================================
 def limpiar_texto(texto):
 
     if texto is None:
-        return ""
+        return "", 0
 
     texto = texto.lower()
     texto = re.sub(r'[^a-záéíóúñ0-9\s]', ' ', texto)
     texto = re.sub(r'\s+', ' ', texto).strip()
 
-    tokens = word_tokenize(texto, language='spanish')
+    tokens = texto.split()  # 🔥 FIX IMPORTANTE
 
-    tokens = [
+    tokens_limpios = [
         t for t in tokens
         if t not in STOPWORDS_ES and len(t) > 2
     ]
 
-    return " ".join(tokens), len(tokens)
+    return " ".join(tokens_limpios), len(tokens_limpios)
 
 # =========================================================
-# UI - UPLOADER
+# UI UPLOADER
 # =========================================================
 uploaded_files = st.file_uploader(
     "Subir Certificados Médicos",
@@ -134,9 +128,9 @@ if uploaded_files:
             image = Image.open(file)
             pre = preprocesar_imagen(image)
 
-            # =========================
-            # OCR (NO SE RECARGA MODELO)
-            # =========================
+            # =================================================
+            # OCR (NO RE-DESCARGA MODELO)
+            # =================================================
             texto_ocr = "\n".join(
                 reader.readtext(
                     pre["gray"],
@@ -145,13 +139,16 @@ if uploaded_files:
                 )
             )
 
+            # =================================================
+            # NLP
+            # =================================================
             texto_limpio, n_tokens = limpiar_texto(texto_ocr)
 
             resultados.append({
                 "archivo": file.name,
                 "texto_ocr": texto_ocr,
                 "texto_limpio": texto_limpio,
-                "tokens": n_tokens
+                "tokens_limpios": n_tokens
             })
 
             progress.progress((i + 1) / len(uploaded_files))
@@ -159,13 +156,13 @@ if uploaded_files:
 
         df_final = pd.DataFrame(resultados)
 
-        st.success("PROCESO TERMINADO")
+        st.success("PROCESO COMPLETADO")
 
         st.dataframe(df_final)
 
-        # =========================
+        # =================================================
         # FRECUENCIAS
-        # =========================
+        # =================================================
         palabras = " ".join(df_final["texto_limpio"]).split()
         freq = Counter(palabras)
 
@@ -184,13 +181,13 @@ if uploaded_files:
 
             st.pyplot(fig)
 
-        # =========================
+        # =================================================
         # WORDCLOUD
-        # =========================
+        # =================================================
         if palabras:
 
             wc = WordCloud(
-                width=800,
+                width=900,
                 height=400,
                 background_color="white"
             ).generate(" ".join(palabras))
