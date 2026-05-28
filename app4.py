@@ -28,17 +28,6 @@ st.set_page_config(
 plt.style.use('ggplot')
 
 # =========================================================
-# FIX CSS (EVITA TEXTO INVISIBLE)
-# =========================================================
-st.markdown("""
-<style>
-* {
-    color: #111827 !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# =========================================================
 # SESSION STATE
 # =========================================================
 if "df_final" not in st.session_state:
@@ -49,7 +38,7 @@ if "palabras" not in st.session_state:
     st.session_state.palabras = None
 
 # =========================================================
-# NLTK FIX
+# NLTK SAFE INIT
 # =========================================================
 @st.cache_resource
 def descargar_nltk():
@@ -80,7 +69,7 @@ def cargar_ocr():
 reader = cargar_ocr()
 
 # =========================================================
-# LIMPIEZA NLP
+# NLP CLEANING
 # =========================================================
 def pipeline_limpieza(texto):
     texto = texto.lower()
@@ -140,7 +129,7 @@ def extraer_nombre(texto):
     return "NO IDENTIFICADO"
 
 # =========================================================
-# PREPROCESAMIENTO IMAGEN
+# PREPROCESS IMAGE
 # =========================================================
 def preprocesar_imagen(img):
     img = np.array(img)
@@ -184,7 +173,7 @@ if uploaded_files:
             st.image(Image.open(file), use_container_width=True)
 
 # =========================================================
-# PROCESAMIENTO
+# PROCESSING
 # =========================================================
 if uploaded_files:
 
@@ -247,7 +236,7 @@ if st.session_state.df_final is not None:
     st.subheader("📊 Resultados")
 
     # =====================================================
-    # RESULTADO COMPLETO (ORDENADO)
+    # FICHA MÉDICA ORDENADA
     # =====================================================
     st.markdown("## Resultado Completo")
 
@@ -273,9 +262,7 @@ if st.session_state.df_final is not None:
         color:#111827;
     ">
 
-    <h3 style="color:#2563eb;">
-    {fila['archivo']}
-    </h3>
+    <h3 style="color:#2563eb;">{fila['archivo']}</h3>
 
     <b>Nombre:</b> {fila['nombre']}<br>
     <b>Sexo:</b> {fila['sexo']}<br>
