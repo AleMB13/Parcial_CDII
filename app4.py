@@ -930,10 +930,7 @@ if uploaded_files:
 
         with cols[idx % 3]:
 
-            st.image(
-                img,
-                use_container_width=True
-            )
+            st.image(img, width="stretch")
 
 # =========================================================
 # PROCESAMIENTO
@@ -968,7 +965,7 @@ if uploaded_files:
 
                     st.image(
                         image,
-                        use_container_width=True
+                        use_container_width="stretch"
                     )
 
                 with c2:
@@ -976,7 +973,7 @@ if uploaded_files:
                     st.image(
                         pre['gray'],
                         caption="Escala de grises",
-                        use_container_width=True
+                        use_container_width="stretch"
                     )
 
             resultado_ocr = reader.readtext(
