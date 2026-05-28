@@ -1,7 +1,7 @@
 streamlit
 pandas
 numpy
-matplotlib
+matplotlib==3.8.4
 Pillow
 opencv-python-headless
 easyocr
