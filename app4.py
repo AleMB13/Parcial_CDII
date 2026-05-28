@@ -405,8 +405,6 @@ def cargar_ocr():
         gpu=False
     )
 
-reader = cargar_ocr()
-
 # =========================================================
 # STOPWORDS
 # =========================================================
@@ -942,10 +940,13 @@ if uploaded_files:
 # =========================================================
 
 if uploaded_files:
-
     if st.button("EJECUTAR OCR + NLP"):
 
-        resultados_finales = []
+    with st.spinner("Cargando modelo OCR..."):
+        reader = cargar_ocr()
+
+    resultados_finales = []
+
 
         progress = st.progress(0)
 
