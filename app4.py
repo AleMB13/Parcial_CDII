@@ -21,12 +21,12 @@ import re
 from io import BytesIO
 from wordcloud import WordCloud
 from textblob import TextBlob
-import spacy
+#import spacy
 import gc
 import seaborn as sns
 
 from rapidfuzz import fuzz
-from spacy.pipeline import EntityRuler
+#from spacy.pipeline import EntityRuler
 
 from datetime import datetime
 
@@ -391,7 +391,7 @@ def cargar_spacy():
 
     return nlp
 
-nlp = cargar_spacy()
+#nlp = cargar_spacy()
 
 # =========================================================
 # OCR
@@ -402,8 +402,7 @@ def cargar_ocr():
 
     return easyocr.Reader(
         ['es'],
-        gpu=False,
-        quantize=True
+        gpu=False
     )
 
 reader = cargar_ocr()
