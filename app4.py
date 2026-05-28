@@ -939,11 +939,9 @@ if uploaded_files:
 # =========================================================
 
 if uploaded_files:
-
     if st.button("EJECUTAR OCR + NLP"):
-        with st.spinner("Cargando modelo OCR... la primera vez puede tardar unos minutos"): 
+        with st.spinner("Cargando OCR..."):
             reader = cargar_ocr()
-
         resultados_finales = []
 
         progress = st.progress(0)
@@ -983,9 +981,8 @@ if uploaded_files:
 
                 detail=0,
 
-                paragraph=True,
+                paragraph=False
 
-                batch_size=1
 
             )
 
