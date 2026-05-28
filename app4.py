@@ -16,18 +16,16 @@ import re
 from io import BytesIO
 from wordcloud import WordCloud
 from textblob import TextBlob
-import spacy
 import gc
-import seaborn as sns
 from rapidfuzz import fuzz
 from datetime import datetime
 from itertools import chain
 
 # =========================================================
-# CONFIG
+# CONFIGURACIÓN
 # =========================================================
 st.set_page_config(
-    page_title="Receta Médica Perú",
+    page_title="Certificado Médico Perú",
     page_icon="🏥",
     layout="wide"
 )
@@ -35,7 +33,7 @@ st.set_page_config(
 plt.style.use('ggplot')
 
 # =========================================================
-# SESSION STATE (CLAVE PARA STREAMLIT)
+# SESSION STATE (CLAVE STREAMLIT)
 # =========================================================
 if "df_final" not in st.session_state:
     st.session_state.df_final = None
@@ -45,14 +43,25 @@ if "palabras" not in st.session_state:
     st.session_state.palabras = None
 
 # =========================================================
-# DESCARGA NLTK
+# NLTK FIX DEFINITIVO
 # =========================================================
 @st.cache_resource
 def descargar_nltk():
-    nltk.download('punkt')
-    nltk.download('stopwords')
+    try:
+        nltk.download('punkt', quiet=True)
+        nltk.download('stopwords', quiet=True)
+        nltk.download('punkt_tab', quiet=True)
+    except:
+        pass
 
 descargar_nltk()
+
+# fallback seguro (evita LookupError)
+def tokenizar(texto):
+    try:
+        return word_tokenize(texto, language='spanish')
+    except:
+        return texto.split()
 
 STOPWORDS_ES = set(stopwords.words('spanish'))
 
@@ -66,11 +75,8 @@ def cargar_ocr():
 reader = cargar_ocr()
 
 # =========================================================
-# NLP BASICO
+# NLP LIMPIEZA
 # =========================================================
-def tokenizar(texto):
-    return word_tokenize(texto, language='spanish')
-
 def pipeline_limpieza(texto):
     texto = texto.lower()
     texto = re.sub(r'[^a-záéíóúñ0-9\s]', ' ', texto)
@@ -87,7 +93,7 @@ def pipeline_limpieza(texto):
     }
 
 # =========================================================
-# CLASIFICACION SIMPLE
+# CLASIFICACIÓN
 # =========================================================
 def clasificar_documento(texto):
     texto = texto.upper()
@@ -100,10 +106,11 @@ def clasificar_documento(texto):
         return "Traumatología"
     if "PEDI" in texto:
         return "Pediatría"
+
     return "Medicina General"
 
 # =========================================================
-# EXTRAER TEXTO SIMPLE
+# EXTRACCIONES BÁSICAS
 # =========================================================
 def extraer_dni(texto):
     m = re.search(r'\b\d{8}\b', texto)
@@ -126,7 +133,6 @@ def preprocesar_imagen(img):
     blur = cv2.Laplacian(gray, cv2.CV_64F).var()
 
     return {
-        "img": img,
         "gray": gray,
         "metricas": {
             "brillo": round(brillo, 2),
@@ -139,10 +145,10 @@ def preprocesar_imagen(img):
 # =========================================================
 # UI HEADER
 # =========================================================
-st.title("🏥 Receta Médica Perú - OCR + NLP")
+st.title("🏥 Certificado Médico Perú - OCR + NLP")
 
 uploaded_files = st.file_uploader(
-    "Sube imágenes",
+    "Subir certificados médicos",
     type=["jpg", "jpeg", "png"],
     accept_multiple_files=True
 )
@@ -152,14 +158,14 @@ uploaded_files = st.file_uploader(
 # =========================================================
 if uploaded_files:
     st.subheader("Vista previa")
-    cols = st.columns(3)
 
-    for i, f in enumerate(uploaded_files[:9]):
+    cols = st.columns(3)
+    for i, file in enumerate(uploaded_files[:9]):
         with cols[i % 3]:
-            st.image(Image.open(f), use_container_width=True)
+            st.image(Image.open(file), use_container_width=True)
 
 # =========================================================
-# PROCESAMIENTO
+# PROCESAMIENTO OCR + NLP
 # =========================================================
 if uploaded_files:
 
@@ -205,7 +211,7 @@ if uploaded_files:
         st.success("Procesamiento completado")
 
 # =========================================================
-# DASHBOARD SOLO SI EXISTE DATA
+# DASHBOARD
 # =========================================================
 if st.session_state.df_final is not None:
 
@@ -219,7 +225,7 @@ if st.session_state.df_final is not None:
     st.dataframe(df_final)
 
     # =====================================================
-    # METRICAS
+    # MÉTRICAS
     # =====================================================
     c1, c2, c3 = st.columns(3)
 
@@ -228,7 +234,7 @@ if st.session_state.df_final is not None:
     c3.metric("Tokens limpios", int(df_final["tokens_limpios"].mean()))
 
     # =====================================================
-    # TABLAS / NLP
+    # TABS
     # =====================================================
     tab1, tab2, tab3 = st.tabs(["Frecuencia", "WordCloud", "Clasificación"])
 
@@ -236,7 +242,6 @@ if st.session_state.df_final is not None:
         top = frecuencias.most_common(20)
         if top:
             p, v = zip(*top)
-
             fig, ax = plt.subplots()
             ax.barh(p, v)
             st.pyplot(fig)
@@ -260,6 +265,6 @@ if st.session_state.df_final is not None:
     st.download_button(
         "Descargar CSV",
         csv,
-        "resultado.csv",
+        "certificados_medicos.csv",
         "text/csv"
     )
