@@ -399,11 +399,7 @@ def cargar_spacy():
 
 @st.cache_resource
 def cargar_ocr():
-
-    return easyocr.Reader(
-        ['es'],
-        gpu=False
-    )
+    return easyocr.Reader(['es', 'en'], gpu=False)
 
 # =========================================================
 # STOPWORDS
