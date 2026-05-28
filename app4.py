@@ -7,16 +7,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 import cv2
-import re
-import gc
-from collections import Counter
-
-import nltk
-from nltk.corpus import stopwords
-
 import easyocr
+from collections import Counter
+import nltk
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+import re
+from io import BytesIO
 from wordcloud import WordCloud
 from textblob import TextBlob
+import spacy
+import gc
+import seaborn as sns
+from rapidfuzz import fuzz
+from datetime import datetime
+from itertools import chain
 
 # =========================================================
 # CONFIG
@@ -27,254 +32,234 @@ st.set_page_config(
     layout="wide"
 )
 
+plt.style.use('ggplot')
+
 # =========================================================
-# NLTK SAFE
+# SESSION STATE (CLAVE PARA STREAMLIT)
+# =========================================================
+if "df_final" not in st.session_state:
+    st.session_state.df_final = None
+if "frecuencias" not in st.session_state:
+    st.session_state.frecuencias = None
+if "palabras" not in st.session_state:
+    st.session_state.palabras = None
+
+# =========================================================
+# DESCARGA NLTK
 # =========================================================
 @st.cache_resource
-def asegurar_nltk():
-    try:
-        nltk.data.find("corpora/stopwords")
-    except LookupError:
-        nltk.download("stopwords", quiet=True)
+def descargar_nltk():
+    nltk.download('punkt')
+    nltk.download('stopwords')
 
-asegurar_nltk()
+descargar_nltk()
 
-STOPWORDS_ES = set(stopwords.words("spanish"))
+STOPWORDS_ES = set(stopwords.words('spanish'))
 
 # =========================================================
-# OCR CACHE
+# OCR
 # =========================================================
 @st.cache_resource
 def cargar_ocr():
-    import easyocr
-    return easyocr.Reader(['es', 'en'], gpu=False)
+    return easyocr.Reader(['es'], gpu=False)
 
 reader = cargar_ocr()
 
 # =========================================================
-# CALIDAD DE IMAGEN (RESTO ORIGINAL)
+# NLP BASICO
 # =========================================================
-def calidad_imagen(gray):
+def tokenizar(texto):
+    return word_tokenize(texto, language='spanish')
+
+def pipeline_limpieza(texto):
+    texto = texto.lower()
+    texto = re.sub(r'[^a-záéíóúñ0-9\s]', ' ', texto)
+    texto = re.sub(r'\s+', ' ', texto).strip()
+
+    tokens = tokenizar(texto)
+    tokens_limpios = [t for t in tokens if t not in STOPWORDS_ES and len(t) > 2]
+
+    return {
+        "texto_preprocesado": " ".join(tokens_limpios),
+        "tokens": tokens_limpios,
+        "n_tokens_original": len(tokens),
+        "n_tokens_limpios": len(tokens_limpios)
+    }
+
+# =========================================================
+# CLASIFICACION SIMPLE
+# =========================================================
+def clasificar_documento(texto):
+    texto = texto.upper()
+
+    if "CARDIO" in texto:
+        return "Cardiología"
+    if "NEURO" in texto:
+        return "Neurología"
+    if "TRAUMA" in texto:
+        return "Traumatología"
+    if "PEDI" in texto:
+        return "Pediatría"
+    return "Medicina General"
+
+# =========================================================
+# EXTRAER TEXTO SIMPLE
+# =========================================================
+def extraer_dni(texto):
+    m = re.search(r'\b\d{8}\b', texto)
+    return m.group() if m else None
+
+def extraer_edad(texto):
+    m = re.search(r'(\d{1,3})\s*años', texto)
+    return m.group(1) if m else None
+
+# =========================================================
+# PREPROCESAMIENTO IMAGEN
+# =========================================================
+def preprocesar_imagen(img):
+    img = np.array(img)
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     brillo = np.mean(gray)
     contraste = np.std(gray)
     blur = cv2.Laplacian(gray, cv2.CV_64F).var()
 
-    estado_brillo = (
-        "Oscura" if brillo < 80
-        else "Muy clara" if brillo > 180
-        else "Normal"
-    )
-
-    estado_blur = "Borroso" if blur < 100 else "Nítido"
-
     return {
-        "brillo": round(brillo,2),
-        "contraste": round(contraste,2),
-        "blur": round(blur,2),
-        "estado_brillo": estado_brillo,
-        "estado_blur": estado_blur
-    }
-
-# =========================================================
-# PREPROCESAMIENTO
-# =========================================================
-def preprocesar(img):
-
-    img = np.array(img)
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    return {
+        "img": img,
         "gray": gray,
-        "metricas": calidad_imagen(gray)
+        "metricas": {
+            "brillo": round(brillo, 2),
+            "contraste": round(contraste, 2),
+            "blur": round(blur, 2),
+            "estado_blur": "Nítido" if blur > 100 else "Borroso"
+        }
     }
 
 # =========================================================
-# NLP SIMPLE
+# UI HEADER
 # =========================================================
-def limpiar(texto):
+st.title("🏥 Receta Médica Perú - OCR + NLP")
 
-    if texto is None:
-        return "", 0
-
-    texto = texto.lower()
-    texto = re.sub(r'[^a-záéíóúñ0-9\s]', ' ', texto)
-    texto = re.sub(r'\s+', ' ', texto).strip()
-
-    tokens = texto.split()
-
-    tokens_limpios = [
-        t for t in tokens
-        if t not in STOPWORDS_ES and len(t) > 2
-    ]
-
-    return " ".join(tokens_limpios), len(tokens_limpios)
-
-# =========================================================
-# EXTRACCIONES (RESTO ORIGINAL)
-# =========================================================
-def extraer_dni(t):
-    m = re.search(r'\b\d{8}\b', t)
-    return m.group() if m else None
-
-def extraer_edad(t):
-    m = re.search(r'(?:edad)\s*[:\-]?\s*(\d{1,3})', t, re.I)
-    return m.group(1) if m else None
-
-def extraer_cmp(t):
-    m = re.search(r'(?:cmp)\s*[:\-]?\s*(\d+)', t, re.I)
-    return m.group(1) if m else None
-
-def extraer_nombre(t):
-    m = re.search(r'(?:paciente|nombre)\s*[:\-]?\s*([a-zA-ZÁÉÍÓÚÑ\s]{5,})', t, re.I)
-    return m.group(1).strip() if m else None
-
-def extraer_sexo(t):
-    if re.search(r'masculino| m\b', t, re.I):
-        return "Masculino"
-    if re.search(r'femenino| f\b', t, re.I):
-        return "Femenino"
-    return None
-
-def extraer_fechas(t):
-    fechas = re.findall(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', t)
-    return " | ".join(fechas) if fechas else None
-
-def extraer_servicio(t):
-    servicios = ["TRAUMATOLOGIA","NEUROLOGIA","CARDIOLOGIA","PEDIATRIA"]
-    for s in servicios:
-        if s in t.upper():
-            return s.title()
-    return "Medicina General"
-
-def clasificar(t):
-    t = t.upper()
-    if "FRACTURA" in t or "TRAUMA" in t:
-        return "Traumatología"
-    if "NEURO" in t:
-        return "Neurología"
-    return "Medicina General"
-
-def sentimiento(t):
-    p = TextBlob(t).sentiment.polarity
-    if p > 0:
-        return "Positivo"
-    if p < 0:
-        return "Negativo"
-    return "Neutral"
-
-# =========================================================
-# UI
-# =========================================================
-files = st.file_uploader(
-    "Subir Certificados Médicos",
-    type=["jpg","jpeg","png"],
+uploaded_files = st.file_uploader(
+    "Sube imágenes",
+    type=["jpg", "jpeg", "png"],
     accept_multiple_files=True
 )
 
 # =========================================================
 # PREVIEW
 # =========================================================
-if files:
-    st.markdown("## Vista previa")
+if uploaded_files:
+    st.subheader("Vista previa")
     cols = st.columns(3)
 
-    for i,f in enumerate(files):
-        with cols[i%3]:
-            st.image(Image.open(f))
+    for i, f in enumerate(uploaded_files[:9]):
+        with cols[i % 3]:
+            st.image(Image.open(f), use_container_width=True)
 
 # =========================================================
 # PROCESAMIENTO
 # =========================================================
-if files:
+if uploaded_files:
 
     if st.button("EJECUTAR OCR + NLP"):
 
         resultados = []
         progress = st.progress(0)
 
-        for i,f in enumerate(files):
+        for i, file in enumerate(uploaded_files):
 
-            img = Image.open(f)
-            pre = preprocesar(img)
+            img = Image.open(file)
+            pre = preprocesar_imagen(img)
 
-            texto = "\n".join(
-                reader.readtext(pre["gray"], detail=0, paragraph=True)
-            )
+            ocr = reader.readtext(pre["gray"], detail=0)
+            texto = " ".join(ocr)
 
-            limpio,_ = limpiar(texto)
+            nlp = pipeline_limpieza(texto)
 
             resultados.append({
-
-                "archivo": f.name,
-
-                # EXTRACCIONES
-                "nombre": extraer_nombre(texto),
-                "sexo": extraer_sexo(texto),
+                "archivo": file.name,
+                "texto_ocr": texto,
+                "texto_preprocesado": nlp["texto_preprocesado"],
+                "tokens_originales": nlp["n_tokens_original"],
+                "tokens_limpios": nlp["n_tokens_limpios"],
                 "dni": extraer_dni(texto),
                 "edad": extraer_edad(texto),
-                "cmp": extraer_cmp(texto),
-                "fechas": extraer_fechas(texto),
-                "servicio": extraer_servicio(texto),
-
-                # NLP
-                "categoria": clasificar(texto),
-                "sentimiento": sentimiento(texto),
-                "texto": texto,
-                "texto_limpio": limpio,
-
-                # CALIDAD IMAGEN
+                "categoria": clasificar_documento(texto),
                 "brillo": pre["metricas"]["brillo"],
                 "contraste": pre["metricas"]["contraste"],
                 "blur": pre["metricas"]["blur"],
-                "estado_brillo": pre["metricas"]["estado_brillo"],
                 "estado_blur": pre["metricas"]["estado_blur"]
             })
 
-            progress.progress((i+1)/len(files))
+            progress.progress((i + 1) / len(uploaded_files))
             gc.collect()
 
         df = pd.DataFrame(resultados)
 
-        st.success("OCR + NLP COMPLETADO")
+        st.session_state.df_final = df
+        st.session_state.palabras = " ".join(df["texto_preprocesado"]).split()
+        st.session_state.frecuencias = Counter(st.session_state.palabras)
 
-        # =====================================================
-        # 📌 ESTA ES TU ESTRUCTURA ORIGINAL RESTAURADA
-        # =====================================================
-        st.markdown("## Información Extraída")
+        st.success("Procesamiento completado")
 
-        for _, row in df.iterrows():
+# =========================================================
+# DASHBOARD SOLO SI EXISTE DATA
+# =========================================================
+if st.session_state.df_final is not None:
 
-            st.markdown(f"""
-            <div style="
-                background:white;
-                padding:20px;
-                border-radius:15px;
-                margin-bottom:20px;
-                box-shadow:0 4px 10px rgba(0,0,0,0.1);
-            ">
+    df_final = st.session_state.df_final
+    frecuencias = st.session_state.frecuencias
+    palabras = st.session_state.palabras
 
-            <h3>{row['archivo']}</h3>
+    st.divider()
+    st.subheader("📊 Resultados")
 
-            <b>Nombre:</b> {row['nombre']}<br>
-            <b>Sexo:</b> {row['sexo']}<br>
-            <b>DNI:</b> {row['dni']}<br>
-            <b>Edad:</b> {row['edad']}<br>
-            <b>CMP:</b> {row['cmp']}<br>
-            <b>Fechas:</b> {row['fechas']}<br>
-            <b>Servicio:</b> {row['servicio']}<br>
-            <b>Categoría:</b> {row['categoria']}<br>
-            <b>Sentimiento:</b> {row['sentimiento']}<br>
+    st.dataframe(df_final)
 
-            <hr>
+    # =====================================================
+    # METRICAS
+    # =====================================================
+    c1, c2, c3 = st.columns(3)
 
-            <b>Brillo:</b> {row['brillo']} ({row['estado_brillo']})<br>
-            <b>Contraste:</b> {row['contraste']}<br>
-            <b>Blur:</b> {row['blur']} ({row['estado_blur']})<br>
+    c1.metric("Documentos", len(df_final))
+    c2.metric("Tokens prom", int(df_final["tokens_originales"].mean()))
+    c3.metric("Tokens limpios", int(df_final["tokens_limpios"].mean()))
 
-            </div>
-            """, unsafe_allow_html=True)
+    # =====================================================
+    # TABLAS / NLP
+    # =====================================================
+    tab1, tab2, tab3 = st.tabs(["Frecuencia", "WordCloud", "Clasificación"])
 
-        st.dataframe(df)
+    with tab1:
+        top = frecuencias.most_common(20)
+        if top:
+            p, v = zip(*top)
+
+            fig, ax = plt.subplots()
+            ax.barh(p, v)
+            st.pyplot(fig)
+
+    with tab2:
+        if palabras:
+            wc = WordCloud(width=800, height=400).generate(" ".join(palabras))
+            fig, ax = plt.subplots()
+            ax.imshow(wc)
+            ax.axis("off")
+            st.pyplot(fig)
+
+    with tab3:
+        st.bar_chart(df_final["categoria"].value_counts())
+
+    # =====================================================
+    # EXPORT
+    # =====================================================
+    csv = df_final.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        "Descargar CSV",
+        csv,
+        "resultado.csv",
+        "text/csv"
+    )
