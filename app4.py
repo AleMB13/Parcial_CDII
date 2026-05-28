@@ -1,6 +1,8 @@
 # =========================================================
 # IMPORTS
 # =========================================================
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -8,7 +10,6 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import cv2
 import easyocr
-import matplotlib.pyplot as plt
 from PIL import Image
 from collections import Counter
 import nltk
@@ -23,7 +24,6 @@ import gc
 import seaborn as sns
 
 from rapidfuzz import fuzz
-from spacy.pipeline import EntityRuler
 
 from datetime import datetime
 
@@ -399,8 +399,7 @@ def cargar_ocr():
 
     return easyocr.Reader(
         ['es'],
-        gpu=False,
-        quantize=True
+        gpu=False
     )
 
 reader = cargar_ocr()
@@ -409,6 +408,8 @@ reader = cargar_ocr()
 # STOPWORDS
 # =========================================================
 
+nltk.download('punkt')
+nltk.download('stopwords')
 STOPWORDS_ES = set(stopwords.words('spanish'))
 
 STOPWORDS_DOMINIO = {
