@@ -401,6 +401,8 @@ def cargar_ocr():
         ['es'],
         gpu=False
     )
+with st.spinner("Cargando modelo OCR... la primera vez puede tardar varios minutos"):
+    reader = cargar_ocr()
 
 reader = cargar_ocr()
 
