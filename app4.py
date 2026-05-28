@@ -33,21 +33,23 @@ st.set_page_config(
 # =========================================================
 # NLTK (CORRECTO Y CACHEADO)
 # =========================================================
+import nltk
+import streamlit as st
+
 @st.cache_resource
 def asegurar_nltk():
-    try:
-        nltk.data.find('tokenizers/punkt')
-    except LookupError:
-        nltk.download('punkt', quiet=True)
+    resources = [
+        ("tokenizers/punkt", "punkt"),
+        ("corpora/stopwords", "stopwords")
+    ]
 
-    try:
-        nltk.data.find('corpora/stopwords')
-    except LookupError:
-        nltk.download('stopwords', quiet=True)
+    for path, pkg in resources:
+        try:
+            nltk.data.find(path)
+        except LookupError:
+            nltk.download(pkg, quiet=True)
 
 asegurar_nltk()
-
-STOPWORDS_ES = set(stopwords.words('spanish'))
 
 # =========================================================
 # OCR (ESTO ES LO MÁS IMPORTANTE)
