@@ -7,4 +7,4 @@ pandas
 nltk
 matplotlib
 wordcloud
-texblob
+textblob
