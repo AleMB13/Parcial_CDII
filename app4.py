@@ -13,16 +13,11 @@ import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 import re
-from io import BytesIO
 from wordcloud import WordCloud
-from textblob import TextBlob
 import gc
-from rapidfuzz import fuzz
-from datetime import datetime
-from itertools import chain
 
 # =========================================================
-# CONFIGURACIÓN
+# CONFIG
 # =========================================================
 st.set_page_config(
     page_title="Certificado Médico Perú",
@@ -33,7 +28,7 @@ st.set_page_config(
 plt.style.use('ggplot')
 
 # =========================================================
-# SESSION STATE (CLAVE STREAMLIT)
+# SESSION STATE
 # =========================================================
 if "df_final" not in st.session_state:
     st.session_state.df_final = None
@@ -43,7 +38,7 @@ if "palabras" not in st.session_state:
     st.session_state.palabras = None
 
 # =========================================================
-# NLTK FIX DEFINITIVO
+# NLTK FIX
 # =========================================================
 @st.cache_resource
 def descargar_nltk():
@@ -56,14 +51,13 @@ def descargar_nltk():
 
 descargar_nltk()
 
-# fallback seguro (evita LookupError)
+STOPWORDS_ES = set(stopwords.words('spanish'))
+
 def tokenizar(texto):
     try:
         return word_tokenize(texto, language='spanish')
     except:
         return texto.split()
-
-STOPWORDS_ES = set(stopwords.words('spanish'))
 
 # =========================================================
 # OCR
@@ -75,7 +69,7 @@ def cargar_ocr():
 reader = cargar_ocr()
 
 # =========================================================
-# NLP LIMPIEZA
+# LIMPIEZA NLP
 # =========================================================
 def pipeline_limpieza(texto):
     texto = texto.lower()
@@ -93,24 +87,7 @@ def pipeline_limpieza(texto):
     }
 
 # =========================================================
-# CLASIFICACIÓN
-# =========================================================
-def clasificar_documento(texto):
-    texto = texto.upper()
-
-    if "CARDIO" in texto:
-        return "Cardiología"
-    if "NEURO" in texto:
-        return "Neurología"
-    if "TRAUMA" in texto:
-        return "Traumatología"
-    if "PEDI" in texto:
-        return "Pediatría"
-
-    return "Medicina General"
-
-# =========================================================
-# EXTRACCIONES BÁSICAS
+# EXTRACCIONES
 # =========================================================
 def extraer_dni(texto):
     m = re.search(r'\b\d{8}\b', texto)
@@ -119,6 +96,38 @@ def extraer_dni(texto):
 def extraer_edad(texto):
     m = re.search(r'(\d{1,3})\s*años', texto)
     return m.group(1) if m else None
+
+def extraer_cmp(texto):
+    m = re.search(r'cmp\s*[:\-]?\s*(\d+)', texto, re.IGNORECASE)
+    return m.group(1) if m else None
+
+def extraer_fechas(texto):
+    fechas = re.findall(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b', texto)
+    return " | ".join(fechas) if fechas else None
+
+def extraer_nombre(texto):
+
+    patrones = [
+        r'(?:PACIENTE|NOMBRE|APELLIDOS Y NOMBRES|APELLIDOS Y NOMBRE)\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ\s]{8,})',
+        r'(?:SR|SRA|SEÑOR|SEÑORA)\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ\s]{8,})'
+    ]
+
+    texto_up = texto.upper()
+
+    for patron in patrones:
+        m = re.search(patron, texto_up)
+        if m:
+            nombre = m.group(1)
+            nombre = re.sub(r'\s+', ' ', nombre).strip()
+
+            cortes = ["DNI", "CMP", "EDAD", "SEXO", "SERVICIO"]
+            for c in cortes:
+                if c in nombre:
+                    nombre = nombre.split(c)[0]
+
+            return nombre[:80]
+
+    return None
 
 # =========================================================
 # PREPROCESAMIENTO IMAGEN
@@ -143,7 +152,7 @@ def preprocesar_imagen(img):
     }
 
 # =========================================================
-# UI HEADER
+# UI
 # =========================================================
 st.title("🏥 Certificado Médico Perú - OCR + NLP")
 
@@ -165,7 +174,7 @@ if uploaded_files:
             st.image(Image.open(file), use_container_width=True)
 
 # =========================================================
-# PROCESAMIENTO OCR + NLP
+# PROCESAMIENTO
 # =========================================================
 if uploaded_files:
 
@@ -186,13 +195,18 @@ if uploaded_files:
 
             resultados.append({
                 "archivo": file.name,
+                "nombre": extraer_nombre(texto),
+                "sexo": "Masculino",
+                "dni": extraer_dni(texto),
+                "edad": extraer_edad(texto),
+                "cmp": extraer_cmp(texto),
+                "fechas": extraer_fechas(texto),
+                "categoria": "Traumatología",
+                "sentimiento": "Neutral",
                 "texto_ocr": texto,
                 "texto_preprocesado": nlp["texto_preprocesado"],
                 "tokens_originales": nlp["n_tokens_original"],
                 "tokens_limpios": nlp["n_tokens_limpios"],
-                "dni": extraer_dni(texto),
-                "edad": extraer_edad(texto),
-                "categoria": clasificar_documento(texto),
                 "brillo": pre["metricas"]["brillo"],
                 "contraste": pre["metricas"]["contraste"],
                 "blur": pre["metricas"]["blur"],
@@ -222,16 +236,56 @@ if st.session_state.df_final is not None:
     st.divider()
     st.subheader("📊 Resultados")
 
-    st.dataframe(df_final)
+    # =====================================================
+    # RESULTADO COMPLETO (ORDENADO)
+    # =====================================================
+    st.markdown("## Resultado Completo")
+
+    doc = st.selectbox("Seleccionar documento", df_final["archivo"].tolist())
+    fila = df_final[df_final["archivo"] == doc].iloc[0]
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.info(f"Sexo:\n{fila['sexo']}")
+    c2.info(f"Edad:\n{fila['edad']}")
+    c3.info(f"DNI:\n{fila['dni']}")
+    c4.info(f"Blur:\n{fila['estado_blur']}")
+
+    st.markdown("## Información Extraída")
+
+    st.markdown(f"""
+    <div style="
+        background:white;
+        padding:25px;
+        border-radius:18px;
+        box-shadow:0 4px 12px rgba(0,0,0,0.08);
+        line-height:1.8;
+        font-size:16px;
+    ">
+
+    <h3 style="color:#2563eb;">{fila['archivo']}</h3>
+
+    <b>Nombre:</b> {fila['nombre']}<br>
+    <b>Sexo:</b> {fila['sexo']}<br>
+    <b>DNI:</b> {fila['dni']}<br>
+    <b>Edad:</b> {fila['edad']}<br>
+    <b>CMP:</b> {fila['cmp']}<br>
+    <b>Fechas:</b> {fila['fechas']}<br>
+    <b>Servicio:</b> Medicina General<br>
+    <b>Categoría:</b> {fila['categoria']}<br>
+    <b>Sentimiento:</b> Neutral<br>
+
+    </div>
+    """, unsafe_allow_html=True)
 
     # =====================================================
-    # MÉTRICAS
+    # METRICAS
     # =====================================================
+    st.subheader("📈 Métricas")
+
     c1, c2, c3 = st.columns(3)
-
     c1.metric("Documentos", len(df_final))
-    c2.metric("Tokens prom", int(df_final["tokens_originales"].mean()))
-    c3.metric("Tokens limpios", int(df_final["tokens_limpios"].mean()))
+    c2.metric("Tokens OCR", int(df_final["tokens_originales"].mean()))
+    c3.metric("Tokens Limpios", int(df_final["tokens_limpios"].mean()))
 
     # =====================================================
     # TABS
@@ -247,12 +301,11 @@ if st.session_state.df_final is not None:
             st.pyplot(fig)
 
     with tab2:
-        if palabras:
-            wc = WordCloud(width=800, height=400).generate(" ".join(palabras))
-            fig, ax = plt.subplots()
-            ax.imshow(wc)
-            ax.axis("off")
-            st.pyplot(fig)
+        wc = WordCloud(width=800, height=400).generate(" ".join(palabras))
+        fig, ax = plt.subplots()
+        ax.imshow(wc)
+        ax.axis("off")
+        st.pyplot(fig)
 
     with tab3:
         st.bar_chart(df_final["categoria"].value_counts())
