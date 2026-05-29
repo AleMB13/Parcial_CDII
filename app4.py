@@ -45,7 +45,6 @@ def descargar_nltk():
     try:
         nltk.download('punkt', quiet=True)
         nltk.download('stopwords', quiet=True)
-        nltk.download('punkt_tab', quiet=True)
     except:
         pass
 
@@ -87,7 +86,7 @@ def pipeline_limpieza(texto):
     }
 
 # =========================================================
-# EXTRACCIONES
+# EXTRACCIONES (CORREGIDO)
 # =========================================================
 def extraer_dni(texto):
     m = re.search(r'\b\d{8}\b', texto)
@@ -103,28 +102,27 @@ def extraer_cmp(texto):
 
 def extraer_fechas(texto):
     fechas = re.findall(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b', texto)
-    return " | ".join(fechas) if fechas else None
 
+    if len(fechas) == 0:
+        return None
+
+    fechas = list(dict.fromkeys(fechas))
+    return " | ".join(fechas)
+
+# 🔥 CORREGIDO: nombre con prioridad PACIENTE
 def extraer_nombre(texto):
 
-    texto = re.sub(r'\s+', ' ', texto.upper())
+    texto_up = texto.upper()
 
-    patrones = [
-        r'NOMBRE\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ ]{8,})',
-        r'PACIENTE\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ ]{8,})',
-        r'SR(?:A)?\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ ]{8,})'
-    ]
+    m = re.search(r'PACIENTE\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ ]{6,})', texto_up)
+    if m:
+        nombre = m.group(1)
+        nombre = re.split(r'CLINICA|HOSPITAL|ESSALUD|SAN|CENTRO', nombre)[0]
+        return nombre.strip()
 
-    for p in patrones:
-        m = re.search(p, texto)
-        if m:
-            return m.group(1).strip()
-
-    palabras = texto.split()
-    candidatos = [w for w in palabras if w.isalpha() and len(w) > 4]
-
-    if len(candidatos) > 3:
-        return " ".join(candidatos[:4])
+    m = re.search(r'NOMBRE\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ ]{6,})', texto_up)
+    if m:
+        return m.group(1).strip()
 
     return "NO IDENTIFICADO"
 
@@ -134,6 +132,7 @@ def extraer_nombre(texto):
 def preprocesar_imagen(img):
     img = np.array(img)
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     brillo = np.mean(gray)
@@ -151,7 +150,7 @@ def preprocesar_imagen(img):
     }
 
 # =========================================================
-# UI HEADER
+# UI
 # =========================================================
 st.title("🏥 Certificado Médico Perú - OCR + NLP")
 
@@ -187,19 +186,21 @@ if uploaded_files:
             img = Image.open(file)
             pre = preprocesar_imagen(img)
 
-            ocr = reader.readtext(pre["gray"], detail=0)
-            texto = " ".join(ocr)
+            # 🔥 CORREGIDO OCR (estructura real)
+            ocr = reader.readtext(pre["gray"], detail=1, paragraph=False)
+            lineas = [r[1] for r in ocr]
+            texto = "\n".join(lineas)
 
             nlp = pipeline_limpieza(texto)
 
             resultados.append({
                 "archivo": file.name,
-                "nombre": extraer_nombre(texto) or "NO IDENTIFICADO",
+                "nombre": extraer_nombre(texto),
                 "sexo": "Masculino",
-                "dni": extraer_dni(texto) or "NO ENCONTRADO",
-                "edad": extraer_edad(texto) or "NO ENCONTRADO",
-                "cmp": extraer_cmp(texto) or "NO ENCONTRADO",
-                "fechas": extraer_fechas(texto) or "SIN FECHAS",
+                "dni": extraer_dni(texto),
+                "edad": extraer_edad(texto),
+                "cmp": extraer_cmp(texto),
+                "fechas": extraer_fechas(texto),
                 "categoria": "Traumatología",
                 "sentimiento": "Neutral",
                 "texto_ocr": texto,
@@ -235,9 +236,6 @@ if st.session_state.df_final is not None:
     st.divider()
     st.subheader("📊 Resultados")
 
-    # =====================================================
-    # FICHA MÉDICA ORDENADA
-    # =====================================================
     st.markdown("## Resultado Completo")
 
     doc = st.selectbox("Seleccionar documento", df_final["archivo"].tolist())
@@ -253,13 +251,12 @@ if st.session_state.df_final is not None:
 
     st.markdown(f"""
     <div style="
-        background:#ffffff;
+        background:white;
         padding:25px;
         border-radius:18px;
         box-shadow:0 4px 12px rgba(0,0,0,0.15);
-        line-height:1.8;
-        font-size:16px;
         color:#111827;
+        line-height:1.8;
     ">
 
     <h3 style="color:#2563eb;">{fila['archivo']}</h3>
@@ -277,9 +274,6 @@ if st.session_state.df_final is not None:
     </div>
     """, unsafe_allow_html=True)
 
-    # =====================================================
-    # MÉTRICAS
-    # =====================================================
     st.subheader("📈 Métricas")
 
     c1, c2, c3 = st.columns(3)
@@ -287,9 +281,6 @@ if st.session_state.df_final is not None:
     c2.metric("Tokens OCR", int(df_final["tokens_originales"].mean()))
     c3.metric("Tokens Limpios", int(df_final["tokens_limpios"].mean()))
 
-    # =====================================================
-    # TABS
-    # =====================================================
     tab1, tab2, tab3 = st.tabs(["Frecuencia", "WordCloud", "Clasificación"])
 
     with tab1:
@@ -310,9 +301,6 @@ if st.session_state.df_final is not None:
     with tab3:
         st.bar_chart(df_final["categoria"].value_counts())
 
-    # =====================================================
-    # EXPORT
-    # =====================================================
     csv = df_final.to_csv(index=False).encode("utf-8")
 
     st.download_button(
