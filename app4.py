@@ -20,7 +20,7 @@ import gc
 # CONFIG
 # =========================================================
 st.set_page_config(
-    page_title="Certificado Médico Perú",
+    page_title="Certificado Médico Perú - PRO",
     page_icon="🏥",
     layout="wide"
 )
@@ -41,14 +41,11 @@ if "palabras" not in st.session_state:
 # NLTK SAFE INIT
 # =========================================================
 @st.cache_resource
-def descargar_nltk():
-    try:
-        nltk.download('punkt', quiet=True)
-        nltk.download('stopwords', quiet=True)
-    except:
-        pass
+def init_nltk():
+    nltk.download('punkt', quiet=True)
+    nltk.download('stopwords', quiet=True)
 
-descargar_nltk()
+init_nltk()
 
 STOPWORDS_ES = set(stopwords.words('spanish'))
 
@@ -68,7 +65,16 @@ def cargar_ocr():
 reader = cargar_ocr()
 
 # =========================================================
-# NLP CLEANING
+# NORMALIZADOR (CLAVE PRO)
+# =========================================================
+def normalizar_texto(texto):
+    texto = texto.upper()
+    texto = re.sub(r'\s+', ' ', texto)
+    texto = texto.replace(":", " : ")
+    return texto
+
+# =========================================================
+# NLP
 # =========================================================
 def pipeline_limpieza(texto):
     texto = texto.lower()
@@ -86,73 +92,93 @@ def pipeline_limpieza(texto):
     }
 
 # =========================================================
-# EXTRACCIONES (CORREGIDO)
+# EXTRACCIÓN ROBUSTA
 # =========================================================
+
 def extraer_dni(texto):
+    texto = normalizar_texto(texto)
+
+    m = re.search(r'DNI\s*[:\-]?\s*(\d{8})', texto)
+    if m:
+        return m.group(1)
+
     m = re.search(r'\b\d{8}\b', texto)
-    return m.group() if m else None
+    if m:
+        return m.group(0)
+
+    return None
+
 
 def extraer_edad(texto):
-    m = re.search(r'(\d{1,3})\s*años', texto)
+    m = re.search(r'(\d{1,3})\s*AÑOS', texto.upper())
     return m.group(1) if m else None
 
+
 def extraer_cmp(texto):
-    m = re.search(r'cmp\s*[:\-]?\s*(\d+)', texto, re.IGNORECASE)
+    m = re.search(r'CMP\s*[:\-]?\s*(\d+)', texto.upper())
     return m.group(1) if m else None
+
 
 def extraer_fechas(texto):
     fechas = re.findall(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b', texto)
-
-    if len(fechas) == 0:
-        return None
-
     fechas = list(dict.fromkeys(fechas))
-    return " | ".join(fechas)
+    return " | ".join(fechas) if fechas else None
 
-# 🔥 CORREGIDO: nombre con prioridad PACIENTE
+
+# =========================================================
+# 🔥 NOMBRE (VERSIÓN PRO REAL)
+# =========================================================
 def extraer_nombre(texto):
 
-    texto_up = texto.upper()
+    texto = normalizar_texto(texto)
 
-    m = re.search(r'PACIENTE\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ ]{6,})', texto_up)
+    # CASO 1: PACIENTE (prioridad máxima)
+    m = re.search(r'PACIENTE\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ ]{6,})', texto)
     if m:
         nombre = m.group(1)
-        nombre = re.split(r'CLINICA|HOSPITAL|ESSALUD|SAN|CENTRO', nombre)[0]
+        nombre = re.split(r'DNI|CMP|EDAD|CLINICA|HOSPITAL', nombre)[0]
         return nombre.strip()
 
-    m = re.search(r'NOMBRE\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ ]{6,})', texto_up)
+    # CASO 2: NOMBRE
+    m = re.search(r'NOMBRE\s*[:\-]?\s*([A-ZÁÉÍÓÚÑ ]{6,})', texto)
     if m:
-        return m.group(1).strip()
+        nombre = m.group(1)
+        nombre = re.split(r'DNI|CMP|CLINICA|HOSPITAL', nombre)[0]
+        return nombre.strip()
+
+    # CASO 3: fallback inteligente
+    palabras = texto.split()
+    candidatos = [w for w in palabras if w.isalpha() and len(w) > 4]
+
+    if len(candidatos) >= 3:
+        return " ".join(candidatos[:4])
 
     return "NO IDENTIFICADO"
 
 # =========================================================
-# PREPROCESS IMAGE
+# PREPROCESAMIENTO IMAGEN
 # =========================================================
 def preprocesar_imagen(img):
+
     img = np.array(img)
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    brillo = np.mean(gray)
-    contraste = np.std(gray)
-    blur = cv2.Laplacian(gray, cv2.CV_64F).var()
-
     return {
         "gray": gray,
         "metricas": {
-            "brillo": round(brillo, 2),
-            "contraste": round(contraste, 2),
-            "blur": round(blur, 2),
-            "estado_blur": "Nítido" if blur > 100 else "Borroso"
+            "brillo": float(np.mean(gray)),
+            "contraste": float(np.std(gray)),
+            "blur": float(cv2.Laplacian(gray, cv2.CV_64F).var()),
+            "estado_blur": "NÍTIDO" if cv2.Laplacian(gray, cv2.CV_64F).var() > 100 else "BORROSO"
         }
     }
 
 # =========================================================
 # UI
 # =========================================================
-st.title("🏥 Certificado Médico Perú - OCR + NLP")
+st.title("🏥 Certificado Médico Perú - OCR PRO")
 
 uploaded_files = st.file_uploader(
     "Subir certificados médicos",
@@ -165,18 +191,18 @@ uploaded_files = st.file_uploader(
 # =========================================================
 if uploaded_files:
     st.subheader("Vista previa")
-
     cols = st.columns(3)
-    for i, file in enumerate(uploaded_files[:9]):
+
+    for i, f in enumerate(uploaded_files[:9]):
         with cols[i % 3]:
-            st.image(Image.open(file), use_container_width=True)
+            st.image(Image.open(f), use_container_width=True)
 
 # =========================================================
 # PROCESSING
 # =========================================================
 if uploaded_files:
 
-    if st.button("EJECUTAR OCR + NLP"):
+    if st.button("EJECUTAR OCR + NLP PRO"):
 
         resultados = []
         progress = st.progress(0)
@@ -186,10 +212,10 @@ if uploaded_files:
             img = Image.open(file)
             pre = preprocesar_imagen(img)
 
-            # 🔥 CORREGIDO OCR (estructura real)
-            ocr = reader.readtext(pre["gray"], detail=1, paragraph=False)
-            lineas = [r[1] for r in ocr]
-            texto = "\n".join(lineas)
+            # 🔥 OCR PRO (con estructura)
+            ocr = reader.readtext(pre["gray"], detail=1, paragraph=True)
+            texto = " ".join([r[1] for r in ocr])
+            texto = normalizar_texto(texto)
 
             nlp = pipeline_limpieza(texto)
 
@@ -222,30 +248,27 @@ if uploaded_files:
         st.session_state.palabras = " ".join(df["texto_preprocesado"]).split()
         st.session_state.frecuencias = Counter(st.session_state.palabras)
 
-        st.success("Procesamiento completado")
+        st.success("✔ Procesamiento PRO completado")
 
 # =========================================================
 # DASHBOARD
 # =========================================================
 if st.session_state.df_final is not None:
 
-    df_final = st.session_state.df_final
-    frecuencias = st.session_state.frecuencias
-    palabras = st.session_state.palabras
+    df = st.session_state.df_final
+    freq = st.session_state.frecuencias
+    words = st.session_state.palabras
 
-    st.divider()
     st.subheader("📊 Resultados")
 
-    st.markdown("## Resultado Completo")
-
-    doc = st.selectbox("Seleccionar documento", df_final["archivo"].tolist())
-    fila = df_final[df_final["archivo"] == doc].iloc[0]
+    doc = st.selectbox("Seleccionar documento", df["archivo"])
+    row = df[df["archivo"] == doc].iloc[0]
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.info(f"Sexo:\n{fila['sexo']}")
-    c2.info(f"Edad:\n{fila['edad']}")
-    c3.info(f"DNI:\n{fila['dni']}")
-    c4.info(f"Blur:\n{fila['estado_blur']}")
+    c1.info(f"Sexo: {row['sexo']}")
+    c2.info(f"Edad: {row['edad']}")
+    c3.info(f"DNI: {row['dni']}")
+    c4.info(f"Blur: {row['estado_blur']}")
 
     st.markdown("## Información Extraída")
 
@@ -253,38 +276,32 @@ if st.session_state.df_final is not None:
     <div style="
         background:white;
         padding:25px;
-        border-radius:18px;
-        box-shadow:0 4px 12px rgba(0,0,0,0.15);
-        color:#111827;
-        line-height:1.8;
+        border-radius:15px;
+        color:#111;
+        box-shadow:0 4px 12px rgba(0,0,0,0.1);
     ">
 
-    <h3 style="color:#2563eb;">{fila['archivo']}</h3>
+    <h3>{row['archivo']}</h3>
 
-    <b>Nombre:</b> {fila['nombre']}<br>
-    <b>Sexo:</b> {fila['sexo']}<br>
-    <b>DNI:</b> {fila['dni']}<br>
-    <b>Edad:</b> {fila['edad']}<br>
-    <b>CMP:</b> {fila['cmp']}<br>
-    <b>Fechas:</b> {fila['fechas']}<br>
-    <b>Servicio:</b> Medicina General<br>
-    <b>Categoría:</b> {fila['categoria']}<br>
-    <b>Sentimiento:</b> Neutral<br>
+    <b>Nombre:</b> {row['nombre']}<br>
+    <b>DNI:</b> {row['dni']}<br>
+    <b>Edad:</b> {row['edad']}<br>
+    <b>CMP:</b> {row['cmp']}<br>
+    <b>Fechas:</b> {row['fechas']}<br>
 
     </div>
     """, unsafe_allow_html=True)
 
     st.subheader("📈 Métricas")
-
     c1, c2, c3 = st.columns(3)
-    c1.metric("Documentos", len(df_final))
-    c2.metric("Tokens OCR", int(df_final["tokens_originales"].mean()))
-    c3.metric("Tokens Limpios", int(df_final["tokens_limpios"].mean()))
+    c1.metric("Docs", len(df))
+    c2.metric("Tokens OCR", int(df["tokens_originales"].mean()))
+    c3.metric("Tokens Limpios", int(df["tokens_limpios"].mean()))
 
     tab1, tab2, tab3 = st.tabs(["Frecuencia", "WordCloud", "Clasificación"])
 
     with tab1:
-        top = frecuencias.most_common(20)
+        top = freq.most_common(20)
         if top:
             p, v = zip(*top)
             fig, ax = plt.subplots()
@@ -292,20 +309,20 @@ if st.session_state.df_final is not None:
             st.pyplot(fig)
 
     with tab2:
-        wc = WordCloud(width=800, height=400).generate(" ".join(palabras))
+        wc = WordCloud(width=800, height=400).generate(" ".join(words))
         fig, ax = plt.subplots()
         ax.imshow(wc)
         ax.axis("off")
         st.pyplot(fig)
 
     with tab3:
-        st.bar_chart(df_final["categoria"].value_counts())
+        st.bar_chart(df["categoria"].value_counts())
 
-    csv = df_final.to_csv(index=False).encode("utf-8")
+    csv = df.to_csv(index=False).encode("utf-8")
 
     st.download_button(
         "Descargar CSV",
         csv,
-        "certificados_medicos.csv",
+        "certificados_pro.csv",
         "text/csv"
     )
