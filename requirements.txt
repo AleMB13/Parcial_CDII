@@ -12,3 +12,6 @@ spacy
 seaborn
 rapidfuzz
 openpyxl
+torch
+torchvision
+torchaudio
